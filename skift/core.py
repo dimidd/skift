@@ -10,6 +10,7 @@ from fasttext import train_supervised
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.multiclass import unique_labels
 from sklearn.exceptions import NotFittedError
+from sklearn.preprocessing import LabelEncoder
 
 from .util import (
     temp_dataset_fpath,
@@ -138,20 +139,23 @@ class FtClassifierABC(BaseEstimator, ClassifierMixin, metaclass=abc.ABCMeta):
         # Store the classes seen during fit
         self.classes_ = unique_labels(y)
         self.num_classes_ = len(self.classes_)
+        self._label_encoder = LabelEncoder().fit(y)
+        numeric_y = self._label_encoder.transform(y)
         self.class_labels_ = [
             '__label__{}'.format(lbl) for lbl in self.classes_]
         # Dump training set to a fasttext-compatible file
         temp_trainset_fpath = temp_dataset_fpath()
-        dump_xy_to_fasttext_format(input_col, y, temp_trainset_fpath)
+        dump_xy_to_fasttext_format(input_col, numeric_y, temp_trainset_fpath)
         if input_col_validation is not None:
             n_classes_validation = len(unique_labels(y_validation))
             assert n_classes_validation == self.num_classes_,\
                 ("Number of validation classes doesn't match number of "
                  "training classes")
+            numeric_y_validation = self._label_encoder.transform(y_validation)
             temp_trainset_fpath_validation = temp_dataset_fpath()
             dump_xy_to_fasttext_format(
                 input_col_validation,
-                y_validation,
+                numeric_y_validation,
                 temp_trainset_fpath_validation,
             )
             # train
@@ -178,9 +182,9 @@ class FtClassifierABC(BaseEstimator, ClassifierMixin, metaclass=abc.ABCMeta):
 
         return self
 
-    @staticmethod
-    def _clean_label(ft_label):
-        return int(ft_label[9:])
+    def _clean_label(self, ft_label):
+        #return self._label_encoder.inverse_transform([ft_label[9:]])[0]
+        return self._label_encoder.inverse_transform([int(ft_label[9:])])
 
     def _predict_on_str_arr(self, str_arr, k=1):
         return (self.model.predict(text, k) for text in str_arr)
@@ -211,7 +215,7 @@ class FtClassifierABC(BaseEstimator, ClassifierMixin, metaclass=abc.ABCMeta):
         return np.array([
             self._clean_label(res[0][0])
             for res in self._predict(X)
-        ], dtype=np.float_)
+        ])
 
     def _format_probas(self, result):
         lbl_prob_pairs = zip(result[0], result[1])
